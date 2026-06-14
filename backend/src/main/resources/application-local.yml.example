@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/healthbooking
+    username: postgres
+    password: your_password
+
+app:
+  jwt:
+    secret: local-dev-secret-key-change-in-production
