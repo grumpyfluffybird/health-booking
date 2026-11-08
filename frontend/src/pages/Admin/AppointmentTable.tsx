@@ -1,10 +1,16 @@
 import React, { useState } from 'react';
 import type { Appointment } from '../../types';
+import { formatDateVN, formatTime, isUpcoming } from '../../utils/date';
 
 interface Props {
   appointments: Appointment[];
   onStatusChange: (id: number, status: Appointment['status']) => void;
+  onReschedule: (appointment: Appointment) => void;
 }
+
+/** Chỉ đổi được lịch chưa diễn ra và đang Chờ xác nhận / Đã xác nhận (backend kiểm tra lại). */
+const canReschedule = (a: Appointment) =>
+  (a.status === 'PENDING' || a.status === 'CONFIRMED') && isUpcoming(a.appointmentDate, a.appointmentTime);
 
 const STATUS_PILL: Record<string, string> = {
   PENDING:   'bg-amber-50  text-amber-700  border-amber-200',
@@ -24,7 +30,7 @@ const STATUS_LABEL: Record<string, string> = {
   CANCELLED: 'Đã hủy',
 };
 
-export default function AppointmentTable({ appointments, onStatusChange }: Props) {
+export default function AppointmentTable({ appointments, onStatusChange, onReschedule }: Props) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   if (appointments.length === 0) {
@@ -93,8 +99,8 @@ export default function AppointmentTable({ appointments, onStatusChange }: Props
 
                   {/* Date & time */}
                   <td className="px-6 py-4">
-                    <p className="font-medium text-slate-700">{appt.appointmentDate}</p>
-                    <p className="text-xs text-slate-400">{appt.appointmentTime}</p>
+                    <p className="font-medium text-slate-700">{formatDateVN(appt.appointmentDate)}</p>
+                    <p className="text-xs text-slate-400">{formatTime(appt.appointmentTime)}</p>
                   </td>
 
                   {/* Status */}
@@ -108,6 +114,14 @@ export default function AppointmentTable({ appointments, onStatusChange }: Props
                   {/* Actions */}
                   <td className="px-6 py-4" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-2">
+                      {canReschedule(appt) && (
+                        <button
+                          onClick={() => onReschedule(appt)}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white text-slate-600 hover:bg-slate-50 hover:text-teal-700 border border-slate-200 transition-colors cursor-pointer whitespace-nowrap"
+                        >
+                          Đổi lịch
+                        </button>
+                      )}
                       {appt.status !== 'CONFIRMED' && (
                         <button
                           onClick={() => onStatusChange(appt.id, 'CONFIRMED')}
@@ -143,8 +157,8 @@ export default function AppointmentTable({ appointments, onStatusChange }: Props
                         <Detail label="Ngày đặt" value={formatDateTime(appt.createdAt)} />
                         <Detail label="Bác sĩ" value={appt.doctor.name} />
                         <Detail label="Chuyên khoa" value={appt.doctor.specialty} />
-                        <Detail label="Ngày khám" value={appt.appointmentDate} />
-                        <Detail label="Giờ khám" value={appt.appointmentTime} />
+                        <Detail label="Ngày khám" value={formatDateVN(appt.appointmentDate)} />
+                        <Detail label="Giờ khám" value={formatTime(appt.appointmentTime)} />
                         {appt.notes && (
                           <div className="col-span-2 md:col-span-4">
                             <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-1">Ghi chú</p>

@@ -4,10 +4,13 @@ import { useAuthStore } from '../../store/authStore';
 import { getAppointments, updateAppointmentStatus } from '../../services/appointmentService';
 import AppointmentTable from './AppointmentTable';
 import DoctorsPanel from './Doctors';
+import RescheduleDialog from './RescheduleDialog';
+import StatsPanel from './StatsPanel';
 import type { Appointment } from '../../types';
+import { formatDateVN, formatTime } from '../../utils/date';
 
 type Filter = 'ALL' | Appointment['status'];
-type Tab = 'appointments' | 'doctors';
+type Tab = 'appointments' | 'stats' | 'doctors';
 
 export default function AdminDashboard() {
   const { token, username, logout } = useAuthStore();
@@ -17,6 +20,20 @@ export default function AdminDashboard() {
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<Filter>('ALL');
   const [tab, setTab] = useState<Tab>('appointments');
+  const [rescheduling, setRescheduling] = useState<Appointment | null>(null);
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(''), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  const handleRescheduled = (updated: Appointment) => {
+    setAppointments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+    setRescheduling(null);
+    setNotice(`Đã đổi lịch hẹn #${updated.id} sang ${formatTime(updated.appointmentTime)} ngày ${formatDateVN(updated.appointmentDate)}.`);
+  };
 
   useEffect(() => {
     if (!token) { navigate('/admin/login'); return; }
@@ -77,6 +94,7 @@ export default function AdminDashboard() {
           <div className="flex gap-1 mt-4 bg-slate-100 rounded-xl p-1 w-fit">
             {([
               { key: 'appointments', label: 'Lịch hẹn' },
+              { key: 'stats',        label: 'Thống kê' },
               { key: 'doctors',      label: 'Bác sĩ' },
             ] as const).map(({ key, label }) => (
               <button
@@ -159,11 +177,18 @@ export default function AdminDashboard() {
               ) : error ? (
                 <div className="py-16 text-center text-red-500 text-sm">Không thể tải dữ liệu lịch hẹn.</div>
               ) : (
-                <AppointmentTable appointments={visible} onStatusChange={handleStatusChange} />
+                <AppointmentTable
+                  appointments={visible}
+                  onStatusChange={handleStatusChange}
+                  onReschedule={setRescheduling}
+                />
               )}
             </div>
           </>
         )}
+
+        {/* ── Stats tab ── */}
+        {tab === 'stats' && <StatsPanel />}
 
         {/* ── Doctors tab ── */}
         {tab === 'doctors' && (
@@ -172,6 +197,25 @@ export default function AdminDashboard() {
           </div>
         )}
       </main>
+
+      {rescheduling && (
+        <RescheduleDialog
+          appointment={rescheduling}
+          onClose={() => setRescheduling(null)}
+          onSuccess={handleRescheduled}
+        />
+      )}
+
+      {notice && (
+        <div
+          role="status"
+          className="fixed bottom-6 right-6 z-50 max-w-sm bg-white border border-teal-200 shadow-lg rounded-xl px-4 py-3 flex items-start gap-3"
+        >
+          <span className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-xs shrink-0 mt-0.5">✓</span>
+          <p className="text-sm text-slate-700">{notice}</p>
+          <button type="button" onClick={() => setNotice('')} className="text-slate-300 hover:text-slate-500 cursor-pointer" aria-label="Đóng">×</button>
+        </div>
+      )}
 
       <footer className="bg-slate-900 text-slate-400 py-6 text-center text-xs mt-auto">
         &copy; {new Date().getFullYear()} Aura Personal Health · Bảng quản trị

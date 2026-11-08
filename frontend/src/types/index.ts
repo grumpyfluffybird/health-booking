@@ -47,6 +47,26 @@ export interface DoctorAvailabilityRequest {
   endTime: string;
 }
 
+/** Khung giờ khám trả về từ GET /doctors/{id}/slots */
+export interface TimeSlot {
+  time: string; // HH:mm
+  remaining: number;
+  available: boolean;
+}
+
+export interface RescheduleRequest {
+  appointmentDate: string; // YYYY-MM-DD
+  appointmentTime: string; // HH:mm
+}
+
+export interface AppointmentStats {
+  from: string;
+  to: string;
+  total: number;
+  byStatus: { status: Appointment['status'] | string; count: number }[];
+  daily: { date: string; count: number }[];
+}
+
 export interface LoginRequest {
   username: string;
   password: string;

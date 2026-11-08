@@ -1,26 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { getDoctors, getDoctorAvailability } from '../../services/doctorService';
+import { useEffect, useState } from 'react';
+import { getDoctors, getDoctorSlots } from '../../services/doctorService';
 import { createAppointment } from '../../services/appointmentService';
-import type { Doctor, DoctorAvailability, Appointment } from '../../types';
+import type { Doctor, Appointment, TimeSlot } from '../../types';
+import { apiErrorMessage, todayInAppTz } from '../../utils/date';
 
-const DAYS_OF_WEEK = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const;
-
-function slotsFromWindows(windows: DoctorAvailability[]): string[] {
-  const slots: string[] = [];
-  for (const w of windows) {
-    const [sh, sm] = w.startTime.substring(0, 5).split(':').map(Number);
-    const [eh, em] = w.endTime.substring(0, 5).split(':').map(Number);
-    let mins = sh * 60 + sm;
-    const end = eh * 60 + em;
-    while (mins < end) {
-      slots.push(
-        `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`,
-      );
-      mins += 30;
-    }
-  }
-  return slots;
-}
+// Khung giờ do backend tính (SlotService) — dùng chung với chức năng nhân viên đổi lịch.
 
 const WHY_ITEMS = [
   { icon: '🩺', text: 'Bác sĩ được chứng nhận trong tất cả các chuyên khoa' },
@@ -38,8 +22,8 @@ function getInitials(name: string) {
 export default function BookingSection() {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loadingDoctors, setLoadingDoctors] = useState(true);
-  const [availability, setAvailability] = useState<DoctorAvailability[]>([]);
-  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotResult, setSlotResult] = useState<{ key: string; slots: TimeSlot[] } | null>(null);
+  const [slotsVersion, setSlotsVersion] = useState(0);
 
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
@@ -52,30 +36,26 @@ export default function BookingSection() {
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState<Appointment | null>(null);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayInAppTz();
 
   useEffect(() => {
     getDoctors().then(setDoctors).finally(() => setLoadingDoctors(false));
   }, []);
 
+  // Tải giờ trống theo (bác sĩ, ngày, lần tải); loading được suy ra từ key của kết quả gần nhất.
+  const slotKey = selectedDoctor && selectedDate ? `${selectedDoctor.id}|${selectedDate}|${slotsVersion}` : '';
   useEffect(() => {
-    if (!selectedDoctor) { setAvailability([]); return; }
-    setLoadingSlots(true);
-    setSelectedTime('');
-    getDoctorAvailability(selectedDoctor.id)
-      .then(setAvailability)
-      .finally(() => setLoadingSlots(false));
-  }, [selectedDoctor]);
+    if (!selectedDoctor || !selectedDate) return;
+    let cancelled = false;
+    getDoctorSlots(selectedDoctor.id, selectedDate)
+      .then((slots) => { if (!cancelled) setSlotResult({ key: slotKey, slots }); })
+      .catch(() => { if (!cancelled) setSlotResult({ key: slotKey, slots: [] }); });
+    return () => { cancelled = true; };
+  }, [selectedDoctor, selectedDate, slotKey]);
 
-  // Reset time when date changes
-  useEffect(() => { setSelectedTime(''); }, [selectedDate]);
-
-  const timeSlots = useMemo(() => {
-    if (!selectedDate || availability.length === 0) return [];
-    const dow = DAYS_OF_WEEK[new Date(selectedDate + 'T00:00:00').getDay()];
-    const windows = availability.filter(w => w.dayOfWeek === dow);
-    return slotsFromWindows(windows);
-  }, [selectedDate, availability]);
+  const loadingSlots = !!slotKey && slotResult?.key !== slotKey;
+  const timeSlots: TimeSlot[] = slotKey && slotResult?.key === slotKey ? slotResult.slots : [];
+  const freeCount = timeSlots.filter((s) => s.available).length;
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -102,8 +82,9 @@ export default function BookingSection() {
         appointmentTime: selectedTime,
       });
       setConfirmed(appt);
-    } catch {
-      setErrors({ submit: 'Có lỗi xảy ra. Vui lòng thử lại.' });
+    } catch (err) {
+      setErrors({ submit: apiErrorMessage(err, 'Có lỗi xảy ra. Vui lòng thử lại.') });
+      setSlotsVersion((v) => v + 1); // tải lại giờ trống (giờ đã chọn có thể vừa bị người khác đặt)
     } finally {
       setSubmitting(false);
     }
@@ -116,7 +97,7 @@ export default function BookingSection() {
     setSelectedTime('');
     setName(''); setEmail(''); setPhone('');
     setErrors({});
-    setAvailability([]);
+    setSlotResult(null);
   };
 
   return (
@@ -155,7 +136,7 @@ export default function BookingSection() {
                           <button
                             key={doc.id}
                             type="button"
-                            onClick={() => { setSelectedDoctor(doc); setErrors((e) => ({ ...e, doctor: '' })); }}
+                            onClick={() => { setSelectedDoctor(doc); setSelectedTime(''); setErrors((e) => ({ ...e, doctor: '' })); }}
                             className={`flex items-center gap-3 p-3.5 rounded-xl border text-left cursor-pointer transition-all w-full ${
                               active
                                 ? 'bg-teal-50 border-teal-500 ring-1 ring-teal-500'
@@ -186,7 +167,7 @@ export default function BookingSection() {
                     type="date"
                     min={today}
                     value={selectedDate}
-                    onChange={(e) => { setSelectedDate(e.target.value); setErrors((x) => ({ ...x, date: '' })); }}
+                    onChange={(e) => { setSelectedDate(e.target.value); setSelectedTime(''); setErrors((x) => ({ ...x, date: '' })); }}
                     className={`w-full bg-white border text-slate-900 text-sm rounded-xl p-3 outline-none transition-colors mb-1 ${
                       errors.date ? 'border-red-400' : 'border-slate-200 focus:border-teal-500'
                     }`}
@@ -206,26 +187,30 @@ export default function BookingSection() {
                     </div>
                   ) : timeSlots.length === 0 ? (
                     <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mt-3">
-                      Bác sĩ không làm việc vào ngày này. Vui lòng chọn ngày khác.
+                      Bác sĩ không làm việc hoặc đã hết giờ khám trong ngày này. Vui lòng chọn ngày khác.
                     </p>
                   ) : (
                     <>
                       <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold mt-4 mb-2">
-                        Khung giờ trống ({timeSlots.length} ca)
+                        Khung giờ trống ({freeCount} ca)
                       </p>
                       <div className="grid grid-cols-3 gap-2">
-                        {timeSlots.map((t) => (
+                        {timeSlots.map((s) => (
                           <button
-                            key={t}
+                            key={s.time}
                             type="button"
-                            onClick={() => { setSelectedTime(t); setErrors((x) => ({ ...x, time: '' })); }}
-                            className={`py-2.5 text-xs font-semibold border rounded-lg transition-all cursor-pointer ${
-                              selectedTime === t
-                                ? 'bg-teal-600 border-teal-600 text-white shadow-sm'
-                                : 'bg-white border-slate-200 text-slate-600 hover:border-teal-400 hover:text-teal-600'
+                            disabled={!s.available}
+                            title={s.available ? undefined : 'Đã có người đặt'}
+                            onClick={() => { setSelectedTime(s.time); setErrors((x) => ({ ...x, time: '' })); }}
+                            className={`py-2.5 text-xs font-semibold border rounded-lg transition-all ${
+                              !s.available
+                                ? 'bg-slate-50 border-slate-100 text-slate-300 line-through cursor-not-allowed'
+                                : selectedTime === s.time
+                                  ? 'bg-teal-600 border-teal-600 text-white shadow-sm cursor-pointer'
+                                  : 'bg-white border-slate-200 text-slate-600 hover:border-teal-400 hover:text-teal-600 cursor-pointer'
                             }`}
                           >
-                            {t}
+                            {s.time}
                           </button>
                         ))}
                       </div>

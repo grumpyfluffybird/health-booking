@@ -23,6 +23,11 @@ server:
   port: 8080
 
 app:
+  # Múi giờ dùng cho ngày/giờ hẹn khám và "hôm nay"
+  timezone: Asia/Ho_Chi_Minh
+  booking:
+    # Số lịch chưa hủy tối đa trong một khung giờ 30 phút của một bác sĩ
+    slot-capacity: 1
   jwt:
     secret: change-this-to-a-very-long-random-secret-key-in-production
     expiration-ms: 86400000  # 24 hours
